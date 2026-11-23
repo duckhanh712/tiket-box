@@ -9,11 +9,10 @@ import {
 } from '@app/common';
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
-import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'crypto';
 import { firstValueFrom } from 'rxjs';
-import { Repository } from 'typeorm';
-import { Payment } from './entities/payment.entity';
+import type { Payment } from './generated/prisma/client';
+import { PrismaService } from './prisma.service';
 
 export interface BookingInfo {
   id: string;
@@ -24,10 +23,13 @@ export interface BookingInfo {
   status: BookingStatus;
 }
 
+/** Prisma returns DECIMAL as Decimal.js; the API exposes plain numbers. */
+const toPayment = (payment: Payment) => ({ ...payment, amount: payment.amount.toNumber() });
+
 @Injectable()
 export class PaymentService {
   constructor(
-    @InjectRepository(Payment) private readonly payments: Repository<Payment>,
+    private readonly prisma: PrismaService,
     @Inject(BOOKING_SERVICE) private readonly bookingClient: ClientProxy,
     @Inject(TICKET_SERVICE) private readonly ticketClient: ClientProxy,
   ) {}
@@ -44,16 +46,16 @@ export class PaymentService {
       throw new BadRequestException('Booking is not awaiting payment');
     }
 
-    const payment = await this.payments.save(
-      this.payments.create({
+    const payment = await this.prisma.payment.create({
+      data: {
         bookingId,
         userId,
         method,
         amount: booking.totalAmount,
         status: PaymentStatus.SUCCESS,
         transactionId: `MOCK-${randomUUID()}`,
-      }),
-    );
+      },
+    });
 
     await firstValueFrom(this.bookingClient.send(BOOKING_PATTERNS.CONFIRM, bookingId));
     const tickets = await firstValueFrom(
@@ -64,16 +66,20 @@ export class PaymentService {
         quantity: booking.quantity,
       }),
     );
-    return { payment, tickets };
+    return { payment: toPayment(payment), tickets };
   }
 
-  findByUser(userId: string) {
-    return this.payments.find({ where: { userId }, order: { createdAt: 'DESC' } });
+  async findByUser(userId: string) {
+    const payments = await this.prisma.payment.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return payments.map(toPayment);
   }
 
   async findOne(id: string, userId: string) {
-    const payment = await this.payments.findOne({ where: { id, userId } });
+    const payment = await this.prisma.payment.findFirst({ where: { id, userId } });
     if (!payment) throw new NotFoundException('Payment not found');
-    return payment;
+    return toPayment(payment);
   }
 }

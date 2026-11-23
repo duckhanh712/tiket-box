@@ -1,30 +1,31 @@
 import { CreateUserDto, UpdateUserDto } from '@app/common';
 import { ConflictException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
-import { Repository } from 'typeorm';
-import { User } from './entities/user.entity';
+import { PrismaService } from './prisma.service';
+
+/** The password hash never leaves this service, except for credential checks. */
+const omitPassword = { password: true } as const;
 
 @Injectable()
 export class UserService {
-  constructor(@InjectRepository(User) private readonly users: Repository<User>) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async create(dto: CreateUserDto) {
-    if (await this.users.exists({ where: { email: dto.email } })) {
+    if (await this.prisma.user.findUnique({ where: { email: dto.email }, select: { id: true } })) {
       throw new ConflictException('Email already exists');
     }
-    const user = await this.users.save(
-      this.users.create({ ...dto, password: await bcrypt.hash(dto.password, 10) }),
-    );
-    return this.findOne(user.id);
+    return this.prisma.user.create({
+      data: { ...dto, password: await bcrypt.hash(dto.password, 10) },
+      omit: omitPassword,
+    });
   }
 
   findAll() {
-    return this.users.find({ order: { createdAt: 'DESC' } });
+    return this.prisma.user.findMany({ orderBy: { createdAt: 'desc' }, omit: omitPassword });
   }
 
   async findOne(id: string) {
-    const user = await this.users.findOne({ where: { id } });
+    const user = await this.prisma.user.findUnique({ where: { id }, omit: omitPassword });
     if (!user) throw new NotFoundException('User not found');
     return user;
   }
@@ -33,18 +34,17 @@ export class UserService {
     await this.findOne(id);
     const data = { ...dto };
     if (data.password) data.password = await bcrypt.hash(data.password, 10);
-    await this.users.update(id, data);
-    return this.findOne(id);
+    return this.prisma.user.update({ where: { id }, data, omit: omitPassword });
   }
 
   async remove(id: string) {
-    const user = await this.findOne(id);
-    await this.users.remove(user);
+    await this.findOne(id);
+    await this.prisma.user.delete({ where: { id } });
     return { id };
   }
 
   async validateCredentials(email: string, password: string) {
-    const user = await this.users.findOne({
+    const user = await this.prisma.user.findUnique({
       where: { email },
       select: { id: true, email: true, password: true, fullName: true, role: true },
     });

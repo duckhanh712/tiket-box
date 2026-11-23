@@ -1,18 +1,12 @@
-import { DatabaseModule } from '@app/common';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { Event } from './entities/event.entity';
 import { EventController } from './event.controller';
 import { EventService } from './event.service';
+import { PrismaService } from './prisma.service';
 
 @Module({
-  imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
-    DatabaseModule.forService('EVENT_DB'),
-    TypeOrmModule.forFeature([Event]),
-  ],
+  imports: [ConfigModule.forRoot({ isGlobal: true })],
   controllers: [EventController],
-  providers: [EventService],
+  providers: [PrismaService, EventService],
 })
 export class EventServiceModule {}

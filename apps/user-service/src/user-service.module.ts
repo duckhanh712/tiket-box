@@ -1,18 +1,12 @@
-import { DatabaseModule } from '@app/common';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { User } from './entities/user.entity';
+import { PrismaService } from './prisma.service';
 import { UserController } from './user.controller';
 import { UserService } from './user.service';
 
 @Module({
-  imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
-    DatabaseModule.forService('USER_DB'),
-    TypeOrmModule.forFeature([User]),
-  ],
+  imports: [ConfigModule.forRoot({ isGlobal: true })],
   controllers: [UserController],
-  providers: [UserService],
+  providers: [PrismaService, UserService],
 })
 export class UserServiceModule {}

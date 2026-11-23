@@ -1,41 +1,51 @@
 import { CreateEventDto, EventStatus, ReserveTicketsDto, UpdateEventDto } from '@app/common';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Event } from './entities/event.entity';
+import type { Event } from './generated/prisma/client';
+import { PrismaService } from './prisma.service';
+
+/** Prisma returns DECIMAL as Decimal.js; the API exposes plain numbers. */
+const toEvent = (event: Event) => ({ ...event, price: event.price.toNumber() });
 
 @Injectable()
 export class EventService {
-  constructor(@InjectRepository(Event) private readonly events: Repository<Event>) {}
+  constructor(private readonly prisma: PrismaService) {}
 
-  create(dto: CreateEventDto) {
-    return this.events.save(this.events.create({ ...dto, availableTickets: dto.totalTickets }));
+  async create(dto: CreateEventDto) {
+    return toEvent(
+      await this.prisma.event.create({ data: { ...dto, availableTickets: dto.totalTickets } }),
+    );
   }
 
-  findAll() {
-    return this.events.find({ order: { startTime: 'ASC' } });
+  async findAll() {
+    const events = await this.prisma.event.findMany({ orderBy: { startTime: 'asc' } });
+    return events.map(toEvent);
   }
 
   async findOne(id: string) {
-    const event = await this.events.findOne({ where: { id } });
+    const event = await this.prisma.event.findUnique({ where: { id } });
     if (!event) throw new NotFoundException('Event not found');
-    return event;
+    return toEvent(event);
   }
 
   async update(id: string, dto: UpdateEventDto) {
     const event = await this.findOne(id);
+    // Only rewrite availableTickets when the capacity changes (undefined = untouched).
+    let availableTickets: number | undefined;
     if (dto.totalTickets !== undefined) {
       const sold = event.totalTickets - event.availableTickets;
       if (dto.totalTickets < sold) {
         throw new BadRequestException(`totalTickets cannot be less than sold tickets (${sold})`);
       }
-      event.availableTickets = dto.totalTickets - sold;
+      availableTickets = dto.totalTickets - sold;
     }
-    return this.events.save(Object.assign(event, dto));
+    return toEvent(
+      await this.prisma.event.update({ where: { id }, data: { ...dto, availableTickets } }),
+    );
   }
 
   async remove(id: string) {
-    await this.events.remove(await this.findOne(id));
+    await this.findOne(id);
+    await this.prisma.event.delete({ where: { id } });
     return { id };
   }
 
@@ -45,18 +55,20 @@ export class EventService {
     if (event.status !== EventStatus.PUBLISHED) {
       throw new BadRequestException('Event is not open for booking');
     }
-    const result = await this.events
-      .createQueryBuilder()
-      .update(Event)
-      .set({ availableTickets: () => '"availableTickets" - :quantity' })
-      .where('id = :eventId AND "availableTickets" >= :quantity', { eventId, quantity })
-      .execute();
-    if (!result.affected) throw new BadRequestException('Not enough tickets available');
+    // Single conditional UPDATE: concurrent bookings can never oversell.
+    const { count } = await this.prisma.event.updateMany({
+      where: { id: eventId, availableTickets: { gte: quantity } },
+      data: { availableTickets: { decrement: quantity } },
+    });
+    if (!count) throw new BadRequestException('Not enough tickets available');
     return this.findOne(eventId);
   }
 
   async releaseTickets({ eventId, quantity }: ReserveTicketsDto) {
-    await this.events.increment({ id: eventId }, 'availableTickets', quantity);
+    await this.prisma.event.updateMany({
+      where: { id: eventId },
+      data: { availableTickets: { increment: quantity } },
+    });
     return this.findOne(eventId);
   }
 }

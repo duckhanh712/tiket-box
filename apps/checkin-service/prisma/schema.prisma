@@ -1,0 +1,22 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model CheckIn {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ticketId    String   @unique @db.Uuid
+  ticketCode  String
+  eventId     String   @db.Uuid
+  userId      String   @db.Uuid
+  checkedInBy String   @db.Uuid
+  checkedInAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([eventId])
+  @@map("check_ins")
+}

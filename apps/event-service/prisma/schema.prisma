@@ -1,0 +1,32 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum EventStatus {
+  DRAFT
+  PUBLISHED
+  CANCELLED
+}
+
+model Event {
+  id               String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title            String
+  description      String?
+  venue            String
+  startTime        DateTime    @db.Timestamptz(3)
+  endTime          DateTime    @db.Timestamptz(3)
+  totalTickets     Int
+  availableTickets Int
+  price            Decimal     @db.Decimal(12, 2)
+  status           EventStatus @default(DRAFT)
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @default(now()) @updatedAt
+
+  @@map("events")
+}

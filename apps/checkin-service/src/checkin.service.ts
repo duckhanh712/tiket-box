@@ -1,10 +1,8 @@
 import { CheckInPayload, TICKET_PATTERNS, TICKET_SERVICE } from '@app/common';
 import { Inject, Injectable } from '@nestjs/common';
 import { ClientProxy } from '@nestjs/microservices';
-import { InjectRepository } from '@nestjs/typeorm';
 import { firstValueFrom } from 'rxjs';
-import { Repository } from 'typeorm';
-import { CheckIn } from './entities/checkin.entity';
+import { PrismaService } from './prisma.service';
 
 export interface TicketInfo {
   id: string;
@@ -16,7 +14,7 @@ export interface TicketInfo {
 @Injectable()
 export class CheckinService {
   constructor(
-    @InjectRepository(CheckIn) private readonly checkIns: Repository<CheckIn>,
+    private readonly prisma: PrismaService,
     @Inject(TICKET_SERVICE) private readonly ticketClient: ClientProxy,
   ) {}
 
@@ -25,18 +23,18 @@ export class CheckinService {
     const ticket = await firstValueFrom(
       this.ticketClient.send<TicketInfo>(TICKET_PATTERNS.USE, ticketCode),
     );
-    return this.checkIns.save(
-      this.checkIns.create({
+    return this.prisma.checkIn.create({
+      data: {
         ticketId: ticket.id,
         ticketCode: ticket.code,
         eventId: ticket.eventId,
         userId: ticket.userId,
         checkedInBy: staffId,
-      }),
-    );
+      },
+    });
   }
 
   findByEvent(eventId: string) {
-    return this.checkIns.find({ where: { eventId }, order: { checkedInAt: 'DESC' } });
+    return this.prisma.checkIn.findMany({ where: { eventId }, orderBy: { checkedInAt: 'desc' } });
   }
 }
